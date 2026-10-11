@@ -43,9 +43,10 @@ local autoTs = {}                     -- session id -> start reported by the F1 
 local forceTabs = noctalia.getConfig("debug_force_tabs") == true
 
 -- Next time (Unix seconds) each dataset is due, and in-flight guards.
-local due = { schedule = 0, standings = 0, results = 0 }
+local due = { schedule = 0, drivers = 0, constructors = 0, results = 0 }
 local busy = {}                       -- busy[name] = true while a request is out
 local gridRound = nil                 -- round the grid was last loaded for
+local gridRetryAt = 0                 -- earliest time the grid may be requested again
 local gridDebug = false
 local postRaceRound = nil             -- round whose post-race refresh already ran
 local lastLiveMs = 0
@@ -70,6 +71,10 @@ local token, tokenExpiresAt = nil, 0
 local function getJson(url, onData, onFail, opts)
     local options = opts or {}
     local mine = generation
+    local function fail(reason, status)
+        noctalia.log("f1: request failed (" .. reason .. "): " .. url)
+        if onFail then onFail(reason, status) end
+    end
     local headers = { shared.USER_AGENT, "Accept: application/json" }
     if options.auth and token ~= nil then
         headers[#headers + 1] = "Authorization: Bearer " .. token
@@ -81,27 +86,49 @@ local function getJson(url, onData, onFail, opts)
     }, function(res)
         if options.scoped and mine ~= generation then return end
         if not res.ok then
-            if onFail then onFail("net", 0) end
+            fail("net", 0)
             return
         end
         if res.status ~= 200 then
-            if onFail then onFail("http " .. tostring(res.status), res.status) end
+            fail("http " .. tostring(res.status), res.status)
             return
         end
         local body = res.body or ""
         if #body == 0 or #body > shared.MAX_BODY_BYTES then
-            if onFail then onFail("size", res.status) end
+            fail("size", res.status)
             return
         end
         if body:sub(1, 3) == "\239\187\191" then body = body:sub(4) end   -- UTF-8 BOM
         local decoded = noctalia.json.decode(body)
         if type(decoded) ~= "table" then
-            if onFail then onFail("parse", res.status) end
+            fail("parse", res.status)
             return
         end
         onData(decoded)
     end)
-    if not started and onFail then onFail("net", 0) end
+    if not started then fail("net", 0) end
+end
+
+-- A failed dataset is retried after 1, 2, 4 ... minutes, capped at 15, so an
+-- outage or a rate limit is not hammered and recovers on its own.
+local attempts = {}
+
+local function retryDelay(name)
+    local n = (attempts[name] or 0) + 1
+    attempts[name] = n
+    return math.min(60 * 2 ^ (n - 1), 900)
+end
+
+local function succeeded(name)
+    attempts[name] = 0
+end
+
+-- The state to publish after a failure: keep whatever was read last time, so
+-- a short outage does not erase the standings, and flag that a retry is due.
+local function failedState(name)
+    local prev = noctalia.state.get(name)
+    local keep = type(prev) == "table" and prev or {}
+    return { loaded = keep.loaded == true, failed = true, rows = keep.rows or {}, raceName = keep.raceName or "" }
 end
 
 -- Safe nested read: path(t, "a", "b") -> t.a.b or nil, without indexing nil.
@@ -160,7 +187,7 @@ end
 local function resetPerRaceData()
     generation += 1
     fixedTs, autoTs = {}, {}
-    gridRound = nil
+    gridRound, gridRetryAt = nil, 0
     busy.grid, busy.ofDrivers, busy.ofPos, busy.ofFlag = nil, nil, nil, nil
     noctalia.state.set("grid", { loaded = false, rows = {} })
     liveRows, liveFlag, liveLatest, liveError = {}, "", 0, nil
@@ -203,7 +230,7 @@ local function loadSchedule()
         setStatus(false, "")
     end, function(reason)
         busy.schedule = false
-        due.schedule = shared.nowSec() + 120
+        due.schedule = shared.nowSec() + retryDelay("schedule")
         setStatus(false, reason)
     end)
 end
@@ -271,10 +298,12 @@ local function loadDrivers()
                 url = type(e.Driver) == "table" and tostring(e.Driver.url or "") or "",
             }
         end
-        noctalia.state.set("drivers", { loaded = true, rows = shared.bounded(rows, 30) })
+        succeeded("drivers")
+        noctalia.state.set("drivers", { loaded = true, failed = false, rows = shared.bounded(rows, 30) })
     end, function()
         busy.drivers = false
-        noctalia.state.set("drivers", { loaded = true, rows = {} })
+        due.drivers = shared.nowSec() + retryDelay("drivers")
+        noctalia.state.set("drivers", failedState("drivers"))
     end)
 end
 
@@ -299,10 +328,12 @@ local function loadConstructors()
                 url = tostring(c.url or ""),
             }
         end
-        noctalia.state.set("constructors", { loaded = true, rows = shared.bounded(rows, 15) })
+        succeeded("constructors")
+        noctalia.state.set("constructors", { loaded = true, failed = false, rows = shared.bounded(rows, 15) })
     end, function()
         busy.constructors = false
-        noctalia.state.set("constructors", { loaded = true, rows = {} })
+        due.constructors = shared.nowSec() + retryDelay("constructors")
+        noctalia.state.set("constructors", failedState("constructors"))
     end)
 end
 
@@ -328,14 +359,17 @@ local function loadResults()
                 url = type(e.Driver) == "table" and tostring(e.Driver.url or "") or "",
             }
         end
+        succeeded("results")
         noctalia.state.set("results", {
             loaded = true,
+            failed = false,
             raceName = r0 and shared.safe(r0.raceName, 48) or "",
             rows = shared.bounded(rows, 30),
         })
     end, function()
         busy.results = false
-        noctalia.state.set("results", { loaded = true, raceName = "", rows = {} })
+        due.results = shared.nowSec() + retryDelay("results")
+        noctalia.state.set("results", failedState("results"))
     end)
 end
 
@@ -366,11 +400,13 @@ local function loadGrid()
                 url = type(q.Driver) == "table" and tostring(q.Driver.url or "") or "",
             }
         end
-        noctalia.state.set("grid", { loaded = true, rows = shared.bounded(rows, 30) })
+        succeeded("grid")
+        noctalia.state.set("grid", { loaded = true, failed = false, rows = shared.bounded(rows, 30) })
     end, function()
         busy.grid = false
         gridRound = nil
-        noctalia.state.set("grid", { loaded = true, rows = {} })
+        gridRetryAt = shared.nowSec() + retryDelay("grid")
+        noctalia.state.set("grid", failedState("grid"))
     end, { scoped = true })
 end
 
@@ -622,17 +658,20 @@ end
 
 local function refreshAll()
     local now = shared.nowSec()
-    due.schedule, due.standings, due.results = now, now, now
-    gridRound = nil
+    due.schedule, due.drivers, due.constructors, due.results = now, now, now, now
+    gridRound, gridRetryAt = nil, 0
 end
 
 function update()
     local now = shared.nowSec()
 
     if now >= due.schedule then loadSchedule() end
-    if now >= due.standings then
-        due.standings = now + STANDINGS_EVERY
+    if now >= due.drivers then
+        due.drivers = now + STANDINGS_EVERY
         loadDrivers()
+    end
+    if now >= due.constructors then
+        due.constructors = now + STANDINGS_EVERY
         loadConstructors()
     end
     if now >= due.results then
@@ -645,7 +684,7 @@ function update()
     local raceTs = shared.sessionTs(sessions, "race")
     if raceTs ~= nil and race ~= nil and now > raceTs + 3 * 3600 + 900 and postRaceRound ~= race.round then
         postRaceRound = race.round
-        due.schedule, due.standings, due.results = now, now, now
+        due.schedule, due.drivers, due.constructors, due.results = now, now, now, now
     end
 
     -- F1's timing feed: follow delays from a few hours before the first session
@@ -664,7 +703,7 @@ function update()
 
     -- Starting grid: needed once qualifying is over, or always in debug mode.
     if race ~= nil and (forceTabs or shared.gridApplicable(sessions, now)) then
-        if gridRound ~= race.round or gridDebug ~= forceTabs then loadGrid() end
+        if now >= gridRetryAt and (gridRound ~= race.round or gridDebug ~= forceTabs) then loadGrid() end
     end
 
     -- Live timing: only near a session.

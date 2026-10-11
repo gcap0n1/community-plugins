@@ -137,7 +137,8 @@
     "no_grid": "No grid available",
     "no_race": "No upcoming race",
     "no_results": "No results yet",
-    "no_standings": "No standings available"
+    "no_standings": "No standings available",
+    "retrying": "Couldn't reach F1 data right now. Retrying automatically."
   },
   "tab": {
     "constructors": "Teams",

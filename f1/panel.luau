@@ -69,6 +69,13 @@ local function loaded(set)
     return type(set) == "table" and set.loaded == true
 end
 
+-- What an empty tab says: a failed load is retried automatically, so it says so.
+local function emptyMessage(set, noneKey)
+    if type(set) == "table" and set.failed == true then return noctalia.tr("state.retrying") end
+    if loaded(set) then return noctalia.tr(noneKey) end
+    return noctalia.tr("state.loading")
+end
+
 -- ── Derived values ───────────────────────────────────────────────────────────
 
 local function liveActive(now)
@@ -274,9 +281,8 @@ local function resultRow(row, opts)
         fontSize = 13, fontWeight = "bold",
         color = isFavorite(row) and ACCENT or TEXT,
     }))
-    children[#children + 1] = ui.row({ flexGrow = 1, justify = "start", align = "center" }, {
-        label(row.team, { fontSize = 13, color = MUTED, maxLines = 1 }),
-    })
+    children[#children + 1] = cell(150, "start", label(row.team, { fontSize = 13, color = MUTED, maxLines = 1 }))
+    children[#children + 1] = ui.spacer({ flexGrow = 1 })
     children[#children + 1] = cell(opts.detailWidth, "end", label(row.detail or "", { fontSize = 13, maxLines = 1 }))
     if opts.points then
         children[#children + 1] = cell(36, "end", label(row.pts or "", { fontSize = 13, color = MUTED }))
@@ -293,14 +299,11 @@ local function standingRow(row, primary, secondary)
     local primaryLabel = label(primary, {
         fontSize = 13, fontWeight = "bold", color = isFavorite(row) and ACCENT or TEXT, maxLines = 1,
     })
+    children[#children + 1] = cell(secondary ~= "" and 48 or 170, "start", primaryLabel)
     if secondary ~= "" then
-        children[#children + 1] = cell(48, "start", primaryLabel)
-        children[#children + 1] = ui.row({ flexGrow = 1, justify = "start", align = "center" }, {
-            label(secondary, { fontSize = 13, color = MUTED, maxLines = 1 }),
-        })
-    else
-        children[#children + 1] = ui.row({ flexGrow = 1, justify = "start", align = "center" }, { primaryLabel })
+        children[#children + 1] = cell(150, "start", label(secondary, { fontSize = 13, color = MUTED, maxLines = 1 }))
     end
+    children[#children + 1] = ui.spacer({ flexGrow = 1 })
     children[#children + 1] = cell(44, "end", label(row.gap > 0 and ("-" .. tostring(row.gap)) or "", {
         fontSize = 12, color = MUTED,
     }))
@@ -392,7 +395,7 @@ local function gridTab()
     local rows = rowsOf(data.grid)
     local out = {}
     if #rows == 0 then
-        out[#out + 1] = hint(loaded(data.grid) and noctalia.tr("state.no_grid") or noctalia.tr("state.loading"))
+        out[#out + 1] = hint(emptyMessage(data.grid, "state.no_grid"))
         return out
     end
     out[#out + 1] = sectionHeader(noctalia.tr("grid.header"))
@@ -471,9 +474,8 @@ local function liveTab(now)
         elseif row.inPit then
             teamText = row.team .. "  ·  PIT"
         end
-        children[#children + 1] = ui.row({ flexGrow = 1, justify = "start", align = "center" }, {
-            label(teamText, { fontSize = 13, color = MUTED, maxLines = 1 }),
-        })
+        children[#children + 1] = cell(150, "start", label(teamText, { fontSize = 13, color = MUTED, maxLines = 1 }))
+        children[#children + 1] = ui.spacer({ flexGrow = 1 })
         if row.best ~= "" or row.gap ~= "" then
             children[#children + 1] = cell(84, "end", label(row.best or "", {
                 fontSize = 13, color = dimmed and MUTED or TEXT, maxLines = 1,
@@ -491,7 +493,7 @@ local function resultsTab()
     local rows = rowsOf(data.results)
     local out = {}
     if #rows == 0 then
-        out[#out + 1] = hint(loaded(data.results) and noctalia.tr("state.no_results") or noctalia.tr("state.loading"))
+        out[#out + 1] = hint(emptyMessage(data.results, "state.no_results"))
         return out
     end
     local name = data.results.raceName or ""
@@ -507,7 +509,7 @@ local function driversTab()
     local rows = rowsOf(data.drivers)
     local out = {}
     if #rows == 0 then
-        out[#out + 1] = hint(loaded(data.drivers) and noctalia.tr("state.no_standings") or noctalia.tr("state.loading"))
+        out[#out + 1] = hint(emptyMessage(data.drivers, "state.no_standings"))
         return out
     end
     out[#out + 1] = sectionHeader(noctalia.tr("drivers.header"))
@@ -522,7 +524,7 @@ local function constructorsTab()
     local rows = rowsOf(data.constructors)
     local out = {}
     if #rows == 0 then
-        out[#out + 1] = hint(loaded(data.constructors) and noctalia.tr("state.no_standings") or noctalia.tr("state.loading"))
+        out[#out + 1] = hint(emptyMessage(data.constructors, "state.no_standings"))
         return out
     end
     out[#out + 1] = sectionHeader(noctalia.tr("constructors.header"))
