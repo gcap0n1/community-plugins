@@ -4,6 +4,14 @@ Next-race countdown in the bar, and a panel with the session schedule in local
 time, the circuit outline, the starting grid, live timing, the last race result
 and both championships.
 
+## Screenshots
+
+Schedule with the circuit and the start lights, the starting grid before the race, driver and team standings.
+
+![Schedule](screenshots/schedule.webp) ![Starting grid](screenshots/grid.webp)
+
+![Drivers](screenshots/drivers.webp) ![Teams](screenshots/constructors.webp)
+
 ## Plugin
 
 | Field | Value |
