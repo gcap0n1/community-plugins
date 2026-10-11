@@ -182,6 +182,7 @@ local function buildRow(number, line, driver, part)
         state = state,
         outPart = outPart,
         inPit = line.InPit == true,
+        pits = tonumber(line.NumberOfPitStops) or 0,
         seconds = secondsByPart,
         bestPart = bestPart,
     }

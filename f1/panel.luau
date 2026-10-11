@@ -474,17 +474,22 @@ local function liveTab(now)
         elseif row.inPit then
             teamText = row.team .. "  ·  PIT"
         end
-        children[#children + 1] = cell(150, "start", label(teamText, { fontSize = 13, color = MUTED, maxLines = 1 }))
+        children[#children + 1] = cell(118, "start", label(teamText, { fontSize = 13, color = MUTED, maxLines = 1 }))
         children[#children + 1] = ui.spacer({ flexGrow = 1 })
+        if row.pits ~= nil and type(live.session) == "table" and live.session.kind ~= "Qualifying" then
+            children[#children + 1] = cell(44, "end", label(noctalia.tr("live.pits", { count = row.pits }), {
+                fontSize = 12, color = MUTED, maxLines = 1,
+            }))
+        end
         if row.best ~= "" or row.gap ~= "" then
-            children[#children + 1] = cell(84, "end", label(row.best or "", {
+            children[#children + 1] = cell(80, "end", label(row.best or "", {
                 fontSize = 13, color = dimmed and MUTED or TEXT, maxLines = 1,
             }))
-            children[#children + 1] = cell(64, "end", label(row.gap or "", {
+            children[#children + 1] = cell(60, "end", label(row.gap or "", {
                 fontSize = 12, color = row.state == "danger" and "error" or MUTED, maxLines = 1,
             }))
         end
-        out[#out + 1] = ui.row({ gap = 8, align = "center", paddingV = 3, paddingH = 4 }, children)
+        out[#out + 1] = ui.row({ gap = 6, align = "center", paddingV = 3, paddingH = 4 }, children)
     end
     return out
 end

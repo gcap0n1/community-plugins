@@ -45,6 +45,7 @@
     "next": "Next: {name} · {time}",
     "nocurl": "The F1 live-timing stream needs curl, which was not found.",
     "out": "out Q{part}",
+    "pits": "{count} pit",
     "rate": "The live feed is rate limited; it will retry shortly.",
     "token": "OpenF1 refused the access token. A new one is requested automatically.",
     "unavailable": "A session is running, but live timing is not available."
